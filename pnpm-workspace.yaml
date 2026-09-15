@@ -1,0 +1,7 @@
+# esbuild bundles dist/; workerd is wrangler's runtime and sharp arrives with
+# it. Without these, pnpm skips their postinstall and `barry install` fails the
+# bag rather than registering one with missing dependencies.
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: true

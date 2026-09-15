@@ -1,0 +1,32 @@
+name: links
+description: Link bookmarking with tags and search — a Cloudflare Worker, a Durable Object per namespace, and a browser UI
+
+# Moved here from the barry monorepo's sdks/links. Unlike the notes bag, this
+# one has a live consumer: bags/barry.rocks serves /links from it, depending on
+# this directory by relative path and inlining its built dist/ bundle. That is
+# why the package is still named @barry-rocks/sdk-links — barry.rocks imports
+# it by that name, so keeping it made the move a one-line path change there
+# rather than an edit to its source.
+#
+# No `tools:` entry: this bag ships no MCP tools yet, only a deployable worker
+# and a UI component. No `traits:` block either — the auto-trait `links`
+# already grants readwrite over the bag's namespaces, and redeclaring the name
+# would replace it rather than refine it.
+
+deployments:
+  worker:
+    description: Bookmarks backend — Durable Object per namespace (worker barry-links)
+    provider: cloudflare
+    worker: barry-links
+    config: wrangler.jsonc
+    # UNVERIFIED, and this worker is LIVE — barry.rocks holds the real address
+    # as its LINKS_WORKER_URL secret. wrangler.jsonc declares no routes and no
+    # custom domain, so the true endpoint is an account-specific workers.dev
+    # subdomain this file cannot know. `url` is required by the schema, so the
+    # value below is a placeholder shape, NOT a confirmed endpoint. Read the
+    # real one from barry.rocks' secret before relying on it.
+    url: https://barry-links.workers.dev
+    health: /health
+    build:
+      command: pnpm
+      args: ["build"]

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Link bookmarking — Cloudflare Worker + Durable Object + browser UI",
+  "description": "Link bookmarking \u2014 Cloudflare Worker + Durable Object + browser UI",
   "main": "./src/index.js",
   "exports": {
     ".": "./src/index.js",
@@ -17,12 +17,14 @@
     "build": "node scripts/build.js",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260819.1",
     "esbuild": "0.27.0",
     "typescript": "5.9.3",
-    "wrangler": "4.113.0"
+    "wrangler": "4.113.0",
+    "vitest": "4.1.0"
   }
 }

@@ -51,8 +51,20 @@ exemption was removed from the monorepo along with the code; this bag has no
 eslint config of its own, so nothing enforces the rule here today. If one is
 added, that file will need the same exemption or a real fix to the type split.
 
-**There are no tests.** Break the code first when adding one — an assertion
-that has never failed is a claim, not evidence.
+**The tests pin the defects below rather than hiding them.** Each known-bad
+behavior has a test asserting what the code actually does, marked as a defect
+in a comment. That means fixing one turns its test red on purpose — the red is
+the signal to update the test and delete the entry here, not a regression.
+
+Run them with `pnpm test`. They stub `cloudflare:workers` and fake SqlStorage,
+so they cover routing, validation and response shapes but never real SQL or DO
+persistence.
+
+One test earns its comment: the two URL guards in `handleAdd` cannot be told
+apart by status code, because `new URL()` throws on `undefined`, on `42` and on
+`"not a url"` exactly as the typeof check rejects them. Deleting the first
+guard leaves every status unchanged — found by trying it and watching nothing
+go red. The tests assert on the error MESSAGE for that reason.
 
 Known defects, none fixed by the move:
 
@@ -68,6 +80,12 @@ Known defects, none fixed by the move:
   404s — a no-op write on a bogus id.
 - `request.json()` is unguarded in `handleAdd` and `handleUpdateTags`, so a
   malformed body is a 500.
+- Non-string tags are stringified rather than dropped: the coercion is
+  `String(t).trim()`, so `7` is stored as `"7"`, `true` as `"true"` and an
+  object as `"[object Object]"`. Found by the tests, not by reading.
+- The `typeof linkUrl !== 'string'` guard is redundant with the `new URL()`
+  parse below it — every input the first rejects, the second also rejects.
+  Harmless, but it reads as two checks where there is one.
 
 ## Layout
 

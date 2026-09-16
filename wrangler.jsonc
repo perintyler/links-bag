@@ -5,6 +5,17 @@
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-03-01",
 
+  // No public workers.dev URL. This worker authenticates nothing — the
+  // X-Links-Namespace header is supplied by the caller — so while it answered
+  // on workers.dev, anyone holding that hostname could read and write the
+  // bookmarks, and barry.rocks shipped the hostname to every browser that
+  // loaded /links. It is now reachable only through that page's authenticated
+  // /api/links proxy.
+  //
+  // Turning this back on re-opens the store to the internet. Put real auth in
+  // the worker first.
+  "workers_dev": false,
+
   "durable_objects": {
     "bindings": [
       { "name": "LINKS", "class_name": "LinksObject" }

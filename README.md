@@ -7,36 +7,44 @@ Object per namespace, and a browser component.
 import { LinksApp } from "@barry-rocks/sdk-links";
 
 new LinksApp(document.getElementById("root"), {
-  workerUrl: "https://barry-links.<account>.workers.dev",
-  namespace: "barry-rocks",
+  // A path on your own origin, not the worker's address. The worker has no
+  // auth of its own, so the page in front of it should proxy — see below.
+  workerUrl: "/api/links",
+  namespace: "my-collection",
 });
 ```
 
 ## Worth knowing before changing anything here
 
 **This worker is live and `barry.rocks` depends on it.** The `/links` page
-inlines this package's built `dist/` bundle at build time and points the
-browser at `LINKS_WORKER_URL`. Changes here reach a running site: rebuild
-barry.rocks and check `/links` before assuming a change is contained.
+inlines this package's built `dist/` bundle at build time and calls the worker
+through its own authenticated `/api/links/*` proxy. Changes here reach a
+running site: rebuild barry.rocks and check `/links` before assuming a change
+is contained.
 
 The dependency is a relative path (`link:../links` in barry.rocks'
 `package.json`, plus a matching `--dir`/`--filter` build step in its
 `package.json` and `bag.yaml`). Moving either directory breaks it.
 
-**The worker has no authentication, and this one is exposed.** The
-`X-Links-Namespace` header is the only thing separating one collection from
-another, and the caller supplies it. barry.rocks gates the *page* behind Google
-OAuth, then hands the browser the raw worker URL — and the session cookie is
-scoped to `barry.rocks`, so it never reaches the worker's origin, which would
-ignore it anyway. Anyone who learns that URL can `GET /list`, `POST /add`,
-`PATCH /tags/:id`, and `DELETE /delete/:id` against real bookmarks with `curl`.
-It leaks into the HTML source of `/links` for every viewer.
+**The worker authenticates nothing — it relies on having no public
+hostname.** The `X-Links-Namespace` header is the only thing separating one
+collection from another, and the caller supplies it. Nothing in the worker or
+the Durable Object reads a credential, and the CORS block advertises an
+`Authorization` header that no code path checks, which makes it look guarded
+when it is not.
 
-The CORS layer makes this look addressed when it is not: it permits an
-`Authorization` header that no code in the worker or the Durable Object ever
-reads, and it reflects the caller's origin (`Origin || '*'`), so any web page
-can drive it. Fixing this means a gateway in front — `bags/artifacts` in the
-barry monorepo has a second `deployments:` entry that does exactly that.
+That is survivable only because `wrangler.jsonc` sets `workers_dev: false`, so
+there is no public URL to reach it at. Consumers reach it through a service
+binding from an authenticated worker — barry.rocks does this for its `/links`
+page, whose `/api/links/*` route checks the session and injects the namespace
+server-side, so the browser never learns a worker address.
+
+This was not always true. The worker answered on `workers.dev` and barry.rocks
+shipped that hostname to every browser that loaded `/links`, which put a
+read-write bookmark store on the open internet; an anonymous `curl` returned
+the whole collection. If you deploy this yourself, either keep `workers_dev`
+off and use a binding, or put real auth in the worker first. Re-enabling it
+without one restores the hole exactly.
 
 **Renaming the worker orphans the bookmarks.** Durable Object storage is keyed
 to worker and class name, so changing `barry-links` or `LinksObject` starts

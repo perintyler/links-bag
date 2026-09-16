@@ -19,12 +19,12 @@ deployments:
     provider: cloudflare
     worker: barry-links
     config: wrangler.jsonc
-    # UNVERIFIED, and this worker is LIVE — barry.rocks holds the real address
-    # as its LINKS_WORKER_URL secret. wrangler.jsonc declares no routes and no
-    # custom domain, so the true endpoint is an account-specific workers.dev
-    # subdomain this file cannot know. `url` is required by the schema, so the
-    # value below is a placeholder shape, NOT a confirmed endpoint. Read the
-    # real one from barry.rocks' secret before relying on it.
+    # NOT AN ENDPOINT. This worker has no public hostname — wrangler.jsonc sets
+    # `workers_dev: false` and declares no routes — so there is no URL to put
+    # here. Consumers reach it through a service binding instead (barry.rocks
+    # binds it as LINKS). The manifest schema requires `url`, so this is a
+    # placeholder that satisfies the type and means nothing; `worker:` above is
+    # the field that identifies the deployment.
     url: https://barry-links.workers.dev
     health: /health
     build:

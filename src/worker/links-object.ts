@@ -36,6 +36,9 @@ export class LinksObject extends DurableObject<Env> {
 
     // GET /list
     if (path === '/' || path === '/list') {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        return json({ ok: false, error: 'Method not allowed' }, 405);
+      }
       return this.handleList(url);
     }
 
@@ -85,19 +88,36 @@ export class LinksObject extends DurableObject<Env> {
   }
 
   private async handleAdd(request: Request): Promise<Response> {
-    const body: AddLinkBody = await request.json();
+    let body: AddLinkBody;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ ok: false, error: 'Invalid JSON body' }, 400);
+    }
     const { url: linkUrl, title, description } = body;
 
-    if (!linkUrl || typeof linkUrl !== 'string') {
+    if (typeof linkUrl !== 'string' || !linkUrl) {
       return json({ ok: false, error: 'url is required' }, 400);
     }
 
-    try { new URL(linkUrl); } catch {
+    let parsed: URL;
+    try { parsed = new URL(linkUrl); } catch {
       return json({ ok: false, error: 'Invalid URL' }, 400);
     }
 
+    // Scheme allowlist. `new URL()` accepts javascript:, data: and vbscript:
+    // as perfectly valid URLs, and LinksApp renders a stored url straight into
+    // an href — so without this a stored bookmark is a stored click-to-execute.
+    // Allow only the two schemes a bookmark can sensibly be.
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return json({ ok: false, error: 'Only http and https URLs are allowed' }, 400);
+    }
+
+    // Only strings become tags. This was `String(t).trim()`, which has an
+    // answer for every input — a number became "7", an object became
+    // "[object Object]" — so non-strings were stored rather than rejected.
     const tags = Array.isArray(body.tags)
-      ? body.tags.map(t => String(t).trim()).filter(Boolean)
+      ? body.tags.filter((t): t is string => typeof t === 'string').map(t => t.trim()).filter(Boolean)
       : [];
 
     const id = crypto.randomUUID();
@@ -118,17 +138,36 @@ export class LinksObject extends DurableObject<Env> {
   }
 
   private handleDelete(id: string): Response {
+    // Check the row exists first: SqlStorage exposes no rowcount on exec, and
+    // reporting ok:true for an id that was never there means a client cannot
+    // tell a real delete from a no-op.
+    const existing = this.ctx.storage.sql
+      .exec(`SELECT id FROM links WHERE id = ?`, id)
+      .toArray();
+    if (existing.length === 0) {
+      return json({ ok: false, error: 'Not found' }, 404);
+    }
     this.ctx.storage.sql.exec(`DELETE FROM links WHERE id = ?`, id);
     return json({ ok: true });
   }
 
   private async handleUpdateTags(id: string, request: Request): Promise<Response> {
-    const body: Pick<AddLinkBody, 'tags'> = await request.json();
+    let body: Pick<AddLinkBody, 'tags'>;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ ok: false, error: 'Invalid JSON body' }, 400);
+    }
     if (!Array.isArray(body.tags)) {
       return json({ ok: false, error: 'tags must be an array' }, 400);
     }
 
-    const cleanTags = body.tags.map(t => String(t).trim()).filter(Boolean);
+    // Same string-only rule as handleAdd: String() would coerce a number or an
+    // object into a tag rather than rejecting it.
+    const cleanTags = body.tags
+      .filter((t): t is string => typeof t === 'string')
+      .map(t => t.trim())
+      .filter(Boolean);
     const now = new Date().toISOString();
 
     this.ctx.storage.sql.exec(

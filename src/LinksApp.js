@@ -62,11 +62,20 @@ export class LinksApp {
 
   async _fetchLinks() {
     try {
-      const res = await fetch(this._url('/list'), { headers: this._headers() });
+      // Ask for the server's maximum rather than letting its default of 500
+      // apply silently. Search and filtering below are client-side over this
+      // one fetch, so whatever is not returned here simply does not exist as
+      // far as the UI is concerned — and the count read as the whole
+      // collection with nothing to suggest otherwise.
+      const res = await fetch(this._url('/list?limit=1000'), { headers: this._headers() });
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
       this._links = data.links || [];
-      this._countEl.textContent = this._links.length;
+      // At the cap the list is probably truncated, and the honest thing is to
+      // say so rather than show a confident wrong total.
+      this._countEl.textContent = this._links.length >= 1000
+        ? `${this._links.length}+`
+        : this._links.length;
       this._renderList();
     } catch (e) {
       this._detailEl.innerHTML = `<div class="links-detail-empty links-error">Failed to load: ${e.message}</div>`;

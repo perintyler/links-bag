@@ -59,13 +59,9 @@ exemption was removed from the monorepo along with the code; this bag has no
 eslint config of its own, so nothing enforces the rule here today. If one is
 added, that file will need the same exemption or a real fix to the type split.
 
-**The tests pin the defects below rather than hiding them.** Each known-bad
-behavior has a test asserting what the code actually does, marked as a defect
-in a comment. That means fixing one turns its test red on purpose — the red is
-the signal to update the test and delete the entry here, not a regression.
-
-Run them with `pnpm test`. They stub `cloudflare:workers` and fake SqlStorage,
-so they cover routing, validation and response shapes but never real SQL or DO
+**The tests cover the fixes below, and each was verified by breaking it.** Run
+them with `pnpm test`. They stub `cloudflare:workers` and fake SqlStorage, so
+they cover routing, validation and response shapes but never real SQL or DO
 persistence.
 
 One test earns its comment: the two URL guards in `handleAdd` cannot be told
@@ -74,26 +70,33 @@ apart by status code, because `new URL()` throws on `undefined`, on `42` and on
 guard leaves every status unchanged — found by trying it and watching nothing
 go red. The tests assert on the error MESSAGE for that reason.
 
-Known defects, none fixed by the move:
+Fixed here, after the move:
 
-- `handleList` ignores the HTTP method: `DELETE /` and `POST /list` both return
-  the full list.
-- `handleDelete` always returns `{ok:true}` — no rowcount check, so deleting a
-  nonexistent id reports success.
-- `javascript:` URLs pass `new URL()` validation and reach an `href` in the
-  detail pane. `esc()` escapes HTML but does not check the scheme.
-- `LinksApp` never sends the server's `search`/`limit`/`offset` params and
-  filters client-side, so the UI silently caps at the server's 500-link default.
-- `handleUpdateTags` runs its `UPDATE` before checking the row exists, then
-  404s — a no-op write on a bogus id.
-- `request.json()` is unguarded in `handleAdd` and `handleUpdateTags`, so a
-  malformed body is a 500.
-- Non-string tags are stringified rather than dropped: the coercion is
-  `String(t).trim()`, so `7` is stored as `"7"`, `true` as `"true"` and an
-  object as `"[object Object]"`. Found by the tests, not by reading.
+- Only `http:` and `https:` URLs are accepted. `new URL()` treats
+  `javascript:`, `data:` and `vbscript:` as perfectly valid, and `LinksApp`
+  renders a stored url into an `href` — so a stored bookmark was a stored
+  click-to-execute.
+- `/` and `/list` answer `GET` and `HEAD` only; other verbs get 405. They used
+  to serve the full list for `DELETE` and `POST` alike.
+- `DELETE /delete/:id` 404s an id that does not exist instead of reporting
+  `{ok:true}` for a no-op.
+- Tags are filtered to strings rather than coerced with `String()`, which had
+  an answer for every input — `7` became `"7"`, an object became
+  `"[object Object]"`.
+- A malformed JSON body is a 400, not an unhandled throw.
+- `LinksApp` requests `limit=1000` (the server maximum) instead of letting the
+  default of 500 apply silently, and renders the count as `1000+` at the cap
+  rather than stating a confident wrong total.
+
+Still true, and worth knowing:
+
 - The `typeof linkUrl !== 'string'` guard is redundant with the `new URL()`
-  parse below it — every input the first rejects, the second also rejects.
-  Harmless, but it reads as two checks where there is one.
+  parse below it — every input the first rejects, the second also rejects. Kept
+  because the two produce different error messages, which is what the tests
+  distinguish.
+- Search and filtering are client-side over one fetch, so the server's
+  `search`/`offset` parameters go unused. Above 1000 links this needs real
+  server-side paging, not a bigger cap.
 
 ## Layout
 

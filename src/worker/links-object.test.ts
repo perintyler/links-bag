@@ -59,20 +59,18 @@ describe('routing', () => {
     }
   });
 
-  /**
-   * DEFECT (README: "handleList ignores the HTTP method"). A read route that
-   * answers DELETE and POST is at best confusing and at worst a way to reach
-   * data with a verb a proxy or CORS rule assumed was a write.
-   *
-   * Asserted as-is so the behavior is recorded rather than implied. Fixing it
-   * means adding a method guard and flipping these to 405.
-   */
-  it('list answers any HTTP method — a known defect, pinned here', async () => {
+  it('405s a write verb on the read route', async () => {
     for (const method of ['DELETE', 'POST', 'PUT']) {
       const { obj } = makeObject();
       const res = await obj.fetch(req('/list', { method }));
-      expect(res.status, method).toBe(200);
+      expect(res.status, method).toBe(405);
     }
+  });
+
+  it('still serves HEAD alongside GET', async () => {
+    const { obj } = makeObject();
+    const res = await obj.fetch(req('/list', { method: 'HEAD' }));
+    expect(res.status).toBe(200);
   });
 });
 
@@ -122,19 +120,29 @@ describe('add validation', () => {
   });
 
   /**
-   * DEFECT (README: "javascript: URLs pass validation"). `new URL()` accepts
-   * any scheme, and LinksApp renders the stored value into an href, so a
-   * stored javascript: URL is a stored click-to-execute.
-   *
-   * Pinned as-is. The fix is a scheme allowlist here; when it lands this
-   * expectation flips to 400 and the test keeps its meaning.
+   * `new URL()` accepts javascript:, data: and vbscript: as valid URLs, and
+   * LinksApp renders a stored url into an href — so without a scheme check a
+   * stored bookmark is a stored click-to-execute.
    */
-  it('accepts javascript: URLs — a known defect, pinned here', async () => {
-    const { obj } = makeObject();
-    const res = await obj.fetch(
-      req('/add', { method: 'POST', body: JSON.stringify({ url: 'javascript:alert(1)' }) }),
-    );
-    expect(res.status).toBe(200);
+  it('rejects schemes that are not http or https', async () => {
+    for (const url of [
+      'javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'vbscript:msgbox(1)',
+      'file:///etc/passwd',
+    ]) {
+      const { obj } = makeObject();
+      const res = await obj.fetch(req('/add', { method: 'POST', body: JSON.stringify({ url }) }));
+      expect(res.status, url).toBe(400);
+    }
+  });
+
+  it('accepts http as well as https', async () => {
+    for (const url of ['http://example.com', 'https://example.com']) {
+      const { obj } = makeObject();
+      const res = await obj.fetch(req('/add', { method: 'POST', body: JSON.stringify({ url }) }));
+      expect(res.status, url).toBe(200);
+    }
   });
 
   it('trims tags and drops empty ones', async () => {
@@ -153,23 +161,18 @@ describe('add validation', () => {
   });
 
   /**
-   * DEFECT, found by this test rather than from the README. The coercion is
-   * `body.tags.map(t => String(t).trim()).filter(Boolean)`, and String() has an
-   * answer for every input — so a number becomes "7", an object becomes
-   * "[object Object]", and true becomes "true". AddLinkBody types tags as
-   * unknown[], which is honest about the input and silent about this.
-   *
-   * Only strings should survive. Pinned as-is; the fix is a typeof filter
-   * before the map, at which point these become absent rather than stringified.
+   * The coercion used to be `String(t).trim()`, which has an answer for every
+   * input: 7 became "7", an object became "[object Object]". Non-strings are
+   * dropped now rather than stringified.
    */
-  it('stringifies non-string tags instead of dropping them — a known defect', async () => {
+  it('drops non-string tags rather than stringifying them', async () => {
     const { obj, calls } = makeObject();
     await obj.fetch(
       req('/add', {
         method: 'POST',
         body: JSON.stringify({
           url: 'https://example.com',
-          tags: [7, true, { a: 1 }],
+          tags: [7, true, { a: 1 }, 'keep'],
         }),
       }),
     );
@@ -177,32 +180,29 @@ describe('add validation', () => {
     const tagsJson = insert?.bindings.find(
       (b) => typeof b === 'string' && b.startsWith('['),
     ) as string;
-    expect(JSON.parse(tagsJson)).toEqual(['7', 'true', '[object Object]']);
+    expect(JSON.parse(tagsJson)).toEqual(['keep']);
   });
 
-  /**
-   * DEFECT (README: "request.json() is unguarded"). A malformed body rejects
-   * inside the handler and surfaces as an unhandled throw rather than a 400.
-   */
-  it('throws on malformed JSON instead of returning 400 — a known defect', async () => {
+  it('400s a malformed JSON body instead of throwing', async () => {
     const { obj } = makeObject();
-    await expect(
-      obj.fetch(req('/add', { method: 'POST', body: '{not json' })),
-    ).rejects.toThrow();
+    const res = await obj.fetch(req('/add', { method: 'POST', body: '{not json' }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'Invalid JSON body' });
   });
 });
 
 describe('delete', () => {
-  /**
-   * DEFECT (README: "handleDelete returns {ok:true} unconditionally"). No
-   * rowcount is checked, so deleting an id that never existed reports success
-   * and a client cannot tell a real delete from a no-op.
-   */
-  it('reports success for an id that does not exist — a known defect', async () => {
-    const { obj } = makeObject();
+  it('404s an id that does not exist instead of reporting success', async () => {
+    const { obj } = makeObject([]);
     const res = await obj.fetch(req('/delete/does-not-exist', { method: 'DELETE' }));
+    expect(res.status).toBe(404);
+  });
+
+  it('deletes a row that exists', async () => {
+    const { obj, calls } = makeObject([{ id: 'real-id' }]);
+    const res = await obj.fetch(req('/delete/real-id', { method: 'DELETE' }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    expect(calls.some((c) => c.query.includes('DELETE FROM'))).toBe(true);
   });
 
   it('only deletes on DELETE, not GET', async () => {
